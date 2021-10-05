@@ -1,15 +1,12 @@
 import logging
+import os
 import telebot
 from typing import Final
-from environs import Env
 from persistent import Storage
 
-logging.basicConfig(encoding='utf-8', level=logging.INFO)
+logging.basicConfig(level=logging.INFO)
 
-env = Env()
-env.read_env()
-
-TOKEN: Final[str] = env.str('API_TOKEN')
+TOKEN: Final[str] = os.getenv('API_TOKEN')
 
 logging.info(TOKEN)
 
