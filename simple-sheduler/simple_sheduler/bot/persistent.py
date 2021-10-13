@@ -3,6 +3,7 @@ import pandas as pd
 import logging
 from typing import Final
 from datetime import date
+import os
 
 logging.basicConfig(level=logging.INFO)
 
@@ -24,10 +25,11 @@ class Singleton(type):
 class Storage(metaclass=Singleton):
 
     __MAX_SLOTS_PER_DAY: Final[int] = 6
+    __ROOT_DIR: str = os.path.dirname(os.path.abspath(__file__))
 
     def __init__(self) -> None:
         #authorization
-        gc = pygsheets.authorize(client_secret="/home/pedro/Github/telegram-simple-scheduler-bot/client_secret.json")
+        gc = pygsheets.authorize(client_secret=self.__ROOT_DIR+"/client_secret.json")
         #open the google spreadsheet (where 'PY to Gsheet Test' is the name of my sheet)
         self.__sh = gc.open('Cross Persistent')
         #select the first sheet 
