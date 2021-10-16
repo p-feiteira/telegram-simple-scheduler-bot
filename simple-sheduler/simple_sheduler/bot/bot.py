@@ -15,7 +15,7 @@ storage = Storage()
 bot = telebot.TeleBot(TOKEN)
 
 @bot.message_handler(commands=['reserva'])
-def send_welcome(message):
+def reservation(message):
     name: str = f"{message.from_user.first_name} {message.from_user.last_name}"
     content: str = message.text.split()
     logging.info(content)
@@ -28,11 +28,16 @@ def send_welcome(message):
 @bot.message_handler(commands=['cancelar'])
 def cancel(message):
     name: str = f"{message.from_user.first_name} {message.from_user.last_name}"
-    storage.remove(name)
-    bot.reply_to(message, message.text)
+    msg: str = storage.remove(name)
+    bot.reply_to(message, msg)
 
 @bot.message_handler(commands=['lista'])
-def cancel(message):
-    bot.reply_to(message, storage.list())
+def list(message):
+    msg: str = storage.list()
+    bot.reply_to(message, msg)
+
+@bot.message_handler(commands=['ajuda'])
+def help(message):
+    bot.reply_to(message, "\n/reserva [hora] -> reserva a aula às [hora] horas\n/cancelar -> cancela a aula marcada previamente\n/lista -> lista as marcações do dia\n")
 
 bot.infinity_polling()
