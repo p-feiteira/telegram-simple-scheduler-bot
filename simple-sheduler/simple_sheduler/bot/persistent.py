@@ -7,8 +7,14 @@ import os
 from enum import Enum
 from typing import List
 from typing import Any
+from environs import Env
 
 logging.basicConfig(level=logging.INFO)
+
+env = Env()
+env.read_env()
+
+SHEETS_TOKEN: Final[str] = env('SHEETS_TOKEN')
 
 today = date.today()
 
@@ -40,9 +46,10 @@ class Storage(metaclass=Singleton):
     __MAX_SLOTS_PER_DAY: Final[int] = 6
     __ROOT_DIR: str = os.path.dirname(os.path.abspath(__file__))
 
+
     def __init__(self) -> None:
         #authorization
-        gc = pygsheets.authorize(client_secret=self.__ROOT_DIR+"/client_secret.json")
+        gc = pygsheets.authorize(service_account_env_var="SHEETS_TOKEN")
         #open the google spreadsheet (where 'PY to Gsheet Test' is the name of my sheet)
         self.__sh = gc.open('Cross Persistent')
         #select the first sheet 

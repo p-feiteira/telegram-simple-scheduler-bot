@@ -3,10 +3,14 @@ import os
 import telebot
 from typing import Final
 from persistent import Storage
+from environs import Env
+
+env = Env()
+env.read_env()
 
 logging.basicConfig(level=logging.INFO)
 
-TOKEN: Final[str] = os.getenv('API_TOKEN')
+TOKEN: Final[str] = env('API_TOKEN')
 
 logging.info(TOKEN)
 
