@@ -1,0 +1,1 @@
+worker: poetry run python simple_scheduler/bot/bot.py
