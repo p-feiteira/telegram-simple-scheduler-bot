@@ -1,1 +1,1 @@
-worker: poetry run python simple_scheduler/bot/bot.py
+worker: python ~/simple_sheduler/bot/bot.py
