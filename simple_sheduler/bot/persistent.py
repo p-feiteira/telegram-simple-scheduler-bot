@@ -1,12 +1,16 @@
-import pygsheets
-import pandas as pd
 import logging
-from typing import Dict, Final, Tuple
-from datetime import date
-from datetime import timedelta
-import os
+import threading
+import time
+import json
+from datetime import date, timedelta
 from enum import Enum
-from typing import List
+from typing import Any, Dict, Final, List, Tuple
+
+import pandas as pd
+import gspread
+from pandas.core.frame import DataFrame
+import schedule
+from beartype import beartype
 from environs import Env
 
 logging.basicConfig(level=logging.INFO)
@@ -14,7 +18,10 @@ logging.basicConfig(level=logging.INFO)
 env = Env()
 env.read_env()
 
-tomorrow = date.today() + timedelta(days=1)
+SHEETS_TOKEN: dict = json.loads(env.str("SHEETS_TOKEN"))
+
+today = date.today()
+tomorrow = today + timedelta(days=1)
 
 class HoursEnum(Enum):
     SEVEN_AM: str = "7"
@@ -45,137 +52,178 @@ class Storage(metaclass=Singleton):
 
     __sheetname = "Cross Persistent"
 
-
+    @beartype
     def __init__(self) -> None:
         #authorization
-        gc = pygsheets.authorize(service_account_env_var="SHEETS_TOKEN")
+        gc = gspread.service_account_from_dict(SHEETS_TOKEN)
         #open the google spreadsheet (where 'PY to Gsheet Test' is the name of my sheet)
         self.__sh = gc.open(self.__sheetname)
 
         if self.__sh is None:
             raise SystemError(f"Erro de sistema: folha de cálculo '{self.__sheetname}' não encontrada. Por favor contacte o administrador.")
 
-        #select the first sheet 
+        self.__setup()
+        self.__job()
 
-    def add(self, name: str, hour:str) -> str:
+
+    @beartype
+    def __setup(self):
+        try:
+            self.__today_wks = self.__sh.worksheet(today.strftime("%d/%m/%Y"))
+        except:
+            self.__today_wks = self.__sh.add_worksheet(title=today.strftime("%d/%m/%Y"), rows="100", cols="2")
+            
+        try:
+            self.__today_available_slots_sheet = self.__sh.worksheet(today.strftime("%d/%m/%Y") + " slots")
+        except:
+            self.__today_available_slots_sheet = self.__sh.add_worksheet(title=(today.strftime("%d/%m/%Y") + " slots"), rows="100", cols="2")
+            
+        try:
+            self.__tomorrow_wks = self.__sh.worksheet(tomorrow.strftime("%d/%m/%Y"))
+        except:
+            self.__tomorrow_wks = self.__sh.add_worksheet(title=tomorrow.strftime("%d/%m/%Y"), rows="100", cols="2")
+            
+        try:
+            self.__tomorrow_available_slots_sheet = self.__sh.worksheet(tomorrow.strftime("%d/%m/%Y") + " slots")
+        except:
+            self.__tomorrow_available_slots_sheet = self.__sh.add_worksheet(title=(tomorrow.strftime("%d/%m/%Y") + " slots"), rows="100", cols="2")
+
+    @beartype
+    def add(self,*, name: str, today: bool = False, hour:str) -> str:
         # Get Sheet current state as pandas Dataframe
-        wks = self.__sh.sheet1
-        available_slots_sheet = self.__sh[1]
-        if available_slots_sheet is None or wks is None:
-            raise SystemError(f"Erro de sistema: folha de cálculo '{self.__sheetname}' não encontrada. Por favor contacte o administrador.")
-        #retrieve all rows of the worksheet
-        cells = wks.get_all_values(include_tailing_empty_rows=False, include_tailing_empty=False, returnas='matrix')
-        available_slots = available_slots_sheet.get_all_values(include_tailing_empty_rows=False, include_tailing_empty=False, returnas='matrix')
+
+        if today:
+            wks: Any = self.__today_wks
+            available_slots_sheets: Any = self.__today_available_slots_sheet
         # Create empty dataframe
-        if len(cells) <= 1 or len(available_slots) <= 1 or wks.title != tomorrow.strftime("%d/%m/%Y"):
-            wks.clear()
-            available_slots_sheet.clear()
-            wks.title = (tomorrow.strftime("%d/%m/%Y"))
-            available_slots_sheet.title = (tomorrow.strftime("%d/%m/%Y") + " slots")
-            df = pd.DataFrame([[name, hour]], columns=["name", "hour"])
-            wks.set_dataframe(df,(1,1))
+        else:
+            wks: Any = self.__tomorrow_wks
+            available_slots_sheets: Any = self.__tomorrow_available_slots_sheet
+
+        cells: Any = wks.get_values()
+        available_slots: Any = available_slots_sheets.get_values()
+
+        if len(cells) <= 1 or len(available_slots) <= 1:
+            wks.append_row(["name", "hour"])
 
             data_frame: List[Tuple[str, int]] = []
 
             for h in HoursEnum:
-                if h.value == hour:
-                    item: Tuple[str, int] = h.value, (self.__MAX_SLOTS_PER_DAY - 1)
-                    data_frame.append(item)
-                else:
-                    item: Tuple[str, int] = h.value, self.__MAX_SLOTS_PER_DAY
-                    data_frame.append(item)
-
-            if not HoursEnum.has_value(hour):
-                item: Tuple[str, int] = hour, (self.__MAX_SLOTS_PER_DAY -1)
+                item: Tuple[str, int] = h.value, self.__MAX_SLOTS_PER_DAY
                 data_frame.append(item)
 
             df = pd.DataFrame(data_frame, columns=["hour", "slots"])
-            available_slots_sheet.set_dataframe(df, (1,1))
-            return f"{name} reserva às {hour} horas dia {wks.title} registada com sucesso."
+            available_slots_sheets.update([df.columns.values.tolist()] + df.values.tolist())
     
-        for cell in cells:
-            if name in cell:
-                return f"{name}, já está registado para amanhã, às {cell[1]} horas.\n\nPara se registar amanhã é favor lançar o comando:\n\n*/reserva hoje [hora]*"
-        
-        if HoursEnum.has_value(hour) or (not HoursEnum.has_value(hour) and self.__checkHour(hour=hour,available_slots=available_slots,)):
-            first_index: int = -1
-            for index, cell in enumerate(available_slots):
-                if cell[0] == "hour" and cell[1] == "slots":
-                    pass
-                else:
-                    if first_index == -1:
-                        first_index = index
-                    if cell[0] == hour:
-                        if int(cell[1]) > 0:
-                            available_slots[index][1] = str(int(available_slots[index][1]) - 1)
-                            df = pd.DataFrame(available_slots[first_index::], columns=["hour", "slots"])
-                            available_slots_sheet.clear()
-                            available_slots_sheet.set_dataframe(df, (1,1))
-                        else:
-                            return f"{name}, não há vagas disponíveis para as {hour} horas!"
-        else:
-            logging.info("Here")
-            available_slots_sheet.append_table(values=[hour, (self.__MAX_SLOTS_PER_DAY - 1)])
-        wks.append_table(values=[name, hour])       
-        return f"{name} reserva às {hour} horas dia {wks.title} registada com sucesso."         
-                
-    def remove(self, name: str) -> str:
-        wks = self.__sh[0]
-        available_slots_sheet = self.__sh[1]
-        if available_slots_sheet is None or wks is None:
-            raise SystemError(f"Erro de sistema: folha de cálculo '{self.__sheetname}' não encontrada. Por favor contacte o administrador.")
-        # Get Sheet current state as pandas Dataframe
-        cells = wks.get_all_values(include_tailing_empty_rows=False, include_tailing_empty=False, returnas='matrix')
-        available_slots = available_slots_sheet.get_all_values(include_tailing_empty_rows=False, include_tailing_empty=False, returnas='matrix')
+        cell = wks.find(name)
 
-        for i, value in enumerate(cells):
-            if(value[0] == name):
-                wks.delete_rows(int(i) + 1)
-                first_index: int = -1
-                for index, cell in enumerate(available_slots):
-                    if cell[0] == "hour" and cell[1] == "slots":
-                        pass
-                    else:
-                        if first_index == -1:
-                            first_index = index
-                        if cell[0] == value[1]:
-                            available_slots[index][1] = str(int(available_slots[index][1]) + 1)
-                            df = pd.DataFrame(available_slots[first_index::], columns=["hour", "slots"])
-                            available_slots_sheet.clear()
-                            available_slots_sheet.set_dataframe(df, (1,1))
-                            return f"{name}, a aula das {value[1]} horas foi desmarcada com sucesso!"
-        return f"{name}, não tem aulas marcadas."
+        if cell is not None:
+            value =  wks.cell(cell.row, cell.col + 1).value
+            return f"{name}, já está registado para {wks.title}, às {value} horas."
 
-    def list(self) -> str:
-        wks = self.__sh[0]
-        if wks is None:
-            raise SystemError(f"Erro de sistema: folha de cálculo '{self.__sheetname}' não encontrada. Por favor contacte o administrador.")
-        cells = wks.get_all_values(include_tailing_empty_rows=False, include_tailing_empty=False, returnas='matrix')
-        result: Dict = {}
+        if HoursEnum.has_value(hour):
+            cell = available_slots_sheets.find(hour)
 
-        for cell in cells:
-            logging.info(cell)
-            logging.info(not cell[1].isdigit())
-            if (not cell[1].isdigit()):
-                continue 
-            if cell[1] not in result.keys():
-                result[cell[1]] = [cell[0]]
+            if cell is None:
+                raise SystemError(f"Erro no sistema: não há entrada nos slots para as {hour} horas. Contactar administrador, por favor!")
+
+            slot_value = available_slots_sheets.cell(cell.row, cell.col + 1).value
+            if int(slot_value) > 0:
+                available_slots_sheets.update(f"B{(cell.row)}", str(int(slot_value)-1))
             else:
-                result[cell[1]].append(cell[0])
+                return f"{name}, não há vagas disponíveis para as {hour} horas!"
+        else:
+            cell = available_slots_sheets.find(hour)
+            if cell is None:
+                available_slots_sheets.append_row([hour, (self.__MAX_SLOTS_PER_DAY - 1)])
+            else:
+                slot_value = available_slots_sheets.cell(cell.row, cell.col + 1).value
+                if int(slot_value) > 0:
+                    available_slots_sheets.update(f"B{(cell.row)}", str(int(slot_value)-1))
+                else:
+                    return f"{name}, não há vagas disponíveis para as {hour} horas!"
 
+        wks.append_row([name, hour])       
+        return f"{name} reserva às {hour} horas dia {wks.title} registada com sucesso."         
+
+    @beartype    
+    def remove(self, name: str, today: bool = False) -> str:
+
+        if today:
+            wks: Any = self.__today_wks
+            available_slots_sheets: Any = self.__today_available_slots_sheet
+        else:
+            wks: Any = self.__tomorrow_wks
+            available_slots_sheets: Any = self.__tomorrow_available_slots_sheet
+
+        cell = wks.find(name)
+
+        if cell is None:
+            return f"{name}, não tem aulas marcadas para dia {wks.title}."
+
+        hour: str = wks.cell(cell.row, cell.col + 1).value
+
+        slot_cell = available_slots_sheets.find(hour)
+
+        if slot_cell is None:
+            raise SystemError("Erro no sistema. Contacte o administrador.")
+
+        wks.delete_row(cell.row)
+
+        slot_value: str = available_slots_sheets.cell(slot_cell.row, slot_cell.col + 1).value
+
+        available_slots_sheets.update(f"B{(slot_cell.row)}", str(int(slot_value)+1))
+
+        return f"{name}, a aula das {hour} horas de dia {wks.title} foi desmarcada com sucesso!"
+
+    @beartype
+    def list(self) -> str:
+        
         toSend: str = ""
+        all_outputs: Dict = {}
 
-        for key in result:
-            toSend +=f"Às {key} horas:\n"
-            for element in result[key]:
-                toSend += f"{element}\n"
-            toSend += "\n"
+        cells: List[List[Any]] = self.__today_wks.get_values()
 
-        return toSend
+        if cells is not None and len(cells)>1:
+            result: Dict = {}
+            for index in range(1,len(cells)):
+                if cells[index][1] not in result.keys():
+                    result[cells[index][1]] = [cells[index][0]]
+                else:
+                    result[cells[index][1]].append(cells[index][0])
 
-    def __checkHour(self, *, hour: str, available_slots:List[List[str]]) -> bool:
-        for row in available_slots:
-            if hour == row[0]:
-                return True
-        return False
+            all_outputs[self.__today_wks.title] = result
 
+        
+        cells: List[List[Any]] = self.__tomorrow_wks.get_values()
+
+        if cells is not None and len(cells)>1:
+            result: Dict = {}
+            for index in range(1,len(cells)):
+                if cells[index][1] not in result.keys():
+                    result[cells[index][1]] = [cells[index][0]]
+                else:
+                    result[cells[index][1]].append(cells[index][0])
+
+            all_outputs[self.__tomorrow_wks.title] = result
+        
+        for day in all_outputs:
+            toSend +=f"\nPara dia {day}:\n\n"
+            for key in all_outputs[day]:
+                toSend +=f"Às {key} horas:\n"
+                for element in all_outputs[day][key]:
+                    toSend += f"{element}\n"
+                toSend += "\n"
+
+        return toSend        
+
+    def __job(self):
+        schedule.every().day.at("01:30").do(self.__setup)
+        
+        def __loop(self):
+            while True:
+                schedule.run_pending()
+                time.sleep(1)
+
+        thread = threading.Thread(target=__loop, args=(1,))
+        thread.start()

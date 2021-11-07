@@ -8,8 +8,9 @@ authors = ["Pedro Feiteira"]
 python = "^3.10"
 pandas = "^1.3.3"
 pyTelegramBotAPI = "^4.1.0"
-pygsheets = "^2.0.5"
+gspread = "^4.0.1"
 environs = "^9.3.4"
+schedule = "^1.1.0"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"
