@@ -13,8 +13,6 @@ logging.basicConfig(level=logging.INFO)
 
 TOKEN: Final[str] = env('API_TOKEN')
 
-logging.info(TOKEN)
-
 storage = Storage()
 
 bot = telebot.TeleBot(TOKEN)
@@ -23,7 +21,6 @@ bot = telebot.TeleBot(TOKEN)
 def reservation(message):
     name: str = f"{message.from_user.first_name} {message.from_user.last_name}"
     content: List[str] = message.text.split()
-    logging.info(content)
     if len(content) <=1 :
         bot.reply_to(message, "Reserva inválida. Falta horas")
     else:

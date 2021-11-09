@@ -1,16 +1,12 @@
 import logging
 import threading
-import time
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from enum import Enum
 from typing import Any, Dict, Final, List, Tuple
 
 import pandas as pd
 import gspread
-from pandas.core.frame import DataFrame
-import schedule
-from beartype import beartype
 from environs import Env
 
 logging.basicConfig(level=logging.INFO)
@@ -24,10 +20,10 @@ today = date.today()
 tomorrow = today + timedelta(days=1)
 
 class HoursEnum(Enum):
-    SEVEN_AM: str = "7"
-    TEN_AM: str = "10"
-    FOUR_PM: str = "16"
-    SEVEN_PM: str = "19"
+    SEVEN_AM = "7"
+    TEN_AM = "10"
+    FOUR_PM = "16"
+    SEVEN_PM = "19"
 
     @classmethod
     def has_value(cls, value):
@@ -52,7 +48,6 @@ class Storage(metaclass=Singleton):
 
     __sheetname = "Cross Persistent"
 
-    @beartype
     def __init__(self) -> None:
         #authorization
         gc = gspread.service_account_from_dict(SHEETS_TOKEN)
@@ -62,33 +57,39 @@ class Storage(metaclass=Singleton):
         if self.__sh is None:
             raise SystemError(f"Erro de sistema: folha de cálculo '{self.__sheetname}' não encontrada. Por favor contacte o administrador.")
 
-        self.__setup()
+        logging.info("Scheduler bot started successfully at %s", datetime.now().strftime("%m/%d/%Y, %H:%M:%S"))
+
         self.__job()
 
 
-    @beartype
     def __setup(self):
         try:
             self.__today_wks = self.__sh.worksheet(today.strftime("%d/%m/%Y"))
+            logging.info("%s sheet already exists!", today.strftime("%d/%m/%Y"))
         except:
+            logging.info("%s sheet does not exists... creating a new one!", today.strftime("%d/%m/%Y"))
             self.__today_wks = self.__sh.add_worksheet(title=today.strftime("%d/%m/%Y"), rows="100", cols="2")
-            
         try:
             self.__today_available_slots_sheet = self.__sh.worksheet(today.strftime("%d/%m/%Y") + " slots")
+            logging.info("%s sheet already exists!", today.strftime("%d/%m/%Y") + " slots")
         except:
+            logging.info("%s sheet does not exists... creating a new one!", today.strftime("%d/%m/%Y") + " slots")
             self.__today_available_slots_sheet = self.__sh.add_worksheet(title=(today.strftime("%d/%m/%Y") + " slots"), rows="100", cols="2")
             
         try:
             self.__tomorrow_wks = self.__sh.worksheet(tomorrow.strftime("%d/%m/%Y"))
+            logging.info("%s sheet already exists!", tomorrow.strftime("%d/%m/%Y"))
         except:
+            logging.info("%s sheet does not exists... creating a new one!", tomorrow.strftime("%d/%m/%Y"))
             self.__tomorrow_wks = self.__sh.add_worksheet(title=tomorrow.strftime("%d/%m/%Y"), rows="100", cols="2")
             
         try:
             self.__tomorrow_available_slots_sheet = self.__sh.worksheet(tomorrow.strftime("%d/%m/%Y") + " slots")
+            logging.info("%s sheet already exists!", tomorrow.strftime("%d/%m/%Y") + " slots")
         except:
+            logging.info("%s sheet does not exists... creating a new one!", tomorrow.strftime("%d/%m/%Y") + " slots")
             self.__tomorrow_available_slots_sheet = self.__sh.add_worksheet(title=(tomorrow.strftime("%d/%m/%Y") + " slots"), rows="100", cols="2")
 
-    @beartype
     def add(self,*, name: str, today: bool = False, hour:str) -> str:
         # Get Sheet current state as pandas Dataframe
 
@@ -103,7 +104,7 @@ class Storage(metaclass=Singleton):
         cells: Any = wks.get_values()
         available_slots: Any = available_slots_sheets.get_values()
 
-        if len(cells) <= 1 or len(available_slots) <= 1:
+        if len(cells) < 1 or len(available_slots) < 1:
             wks.append_row(["name", "hour"])
 
             data_frame: List[Tuple[str, int]] = []
@@ -146,7 +147,6 @@ class Storage(metaclass=Singleton):
         wks.append_row([name, hour])       
         return f"{name} reserva às {hour} horas dia {wks.title} registada com sucesso."         
 
-    @beartype    
     def remove(self, name: str, today: bool = False) -> str:
 
         if today:
@@ -176,7 +176,6 @@ class Storage(metaclass=Singleton):
 
         return f"{name}, a aula das {hour} horas de dia {wks.title} foi desmarcada com sucesso!"
 
-    @beartype
     def list(self) -> str:
         
         toSend: str = ""
@@ -218,12 +217,7 @@ class Storage(metaclass=Singleton):
         return toSend        
 
     def __job(self):
-        schedule.every().day.at("01:30").do(self.__setup)
-        
-        def __loop(self):
-            while True:
-                schedule.run_pending()
-                time.sleep(1)
-
-        thread = threading.Thread(target=__loop, args=(1,))
-        thread.start()
+        self.__setup()
+        logging.info("Daily refresh started at %s", datetime.now().strftime("%m/%d/%Y, %H:%M:%S"))
+        threading.Timer(interval=86400, function=self.__job).start()
+        logging.info("Daily refresh finished")
