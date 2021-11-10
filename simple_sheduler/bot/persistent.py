@@ -16,6 +16,13 @@ env.read_env()
 
 SHEETS_TOKEN: dict = json.loads(env.str("SHEETS_TOKEN"))
 
+# Refresh timer
+x=datetime.today()
+y = x.replace(day=x.day, hour=1, minute=0, second=0, microsecond=0) + timedelta(days=1)
+delta_t=y-x
+secs=delta_t.total_seconds()
+#
+
 today = date.today()
 tomorrow = today + timedelta(days=1)
 
@@ -219,5 +226,5 @@ class Storage(metaclass=Singleton):
     def __job(self):
         self.__setup()
         logging.info("Daily refresh started at %s", datetime.now().strftime("%m/%d/%Y, %H:%M:%S"))
-        threading.Timer(interval=86400, function=self.__job).start()
+        threading.Timer(interval=secs, function=self.__job).start()
         logging.info("Daily refresh finished")
