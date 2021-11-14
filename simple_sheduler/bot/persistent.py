@@ -16,15 +16,15 @@ env.read_env()
 
 SHEETS_TOKEN: dict = json.loads(env.str("SHEETS_TOKEN"))
 
+today = datetime.today()
+tomorrow = today + timedelta(days=1)
+
 # Refresh timer
-x=datetime.today()
+x=today
 y = x.replace(day=x.day, hour=1, minute=0, second=0, microsecond=0) + timedelta(days=1)
 delta_t=y-x
 secs=delta_t.total_seconds()
 #
-
-today = date.today()
-tomorrow = today + timedelta(days=1)
 
 class HoursEnum(Enum):
     SEVEN_AM = "7"
@@ -70,6 +70,10 @@ class Storage(metaclass=Singleton):
 
 
     def __setup(self):
+
+        today = date.today()
+        tomorrow = today + timedelta(days=1)
+
         try:
             self.__today_wks = self.__sh.worksheet(today.strftime("%d/%m/%Y"))
             logging.info("%s sheet already exists!", today.strftime("%d/%m/%Y"))
